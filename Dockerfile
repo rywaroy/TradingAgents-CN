@@ -1,8 +1,8 @@
 # 使用官方Python镜像替代GitHub Container Registry
 FROM python:3.10-slim-bookworm
 
-# 安装uv包管理器
-RUN pip install -i https://mirrors.aliyun.com/pypi/simple uv
+# 安装uv包管理器 (保留，以防万一)
+RUN pip install --timeout=100 -i https://repo.huaweicloud.com/repository/pypi/simple uv
 
 WORKDIR /app
 
@@ -11,12 +11,13 @@ RUN mkdir -p /app/data /app/logs
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-RUN echo 'deb http://mirrors.aliyun.com/debian/ bookworm main' > /etc/apt/sources.list && \
-    echo 'deb-src http://mirrors.aliyun.com/debian/ bookworm main' >> /etc/apt/sources.list && \
-    echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main' >> /etc/apt/sources.list && \
-    echo 'deb-src http://mirrors.aliyun.com/debian/ bookworm-updates main' >> /etc/apt/sources.list && \
-    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list && \
-    echo 'deb-src http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list
+# --- APT-GET 源修改 ---
+# 彻底删除默认的 debian.sources 并使用完整的华为云源
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+    && echo 'deb https://mirrors.huaweicloud.com/debian/ bookworm main contrib non-free non-free-firmware' > /etc/apt/sources.list \
+    && echo 'deb https://mirrors.huaweicloud.com/debian/ bookworm-updates main contrib non-free non-free-firmware' >> /etc/apt/sources.list \
+    && echo 'deb https://mirrors.huaweicloud.com/debian-security/ bookworm-security main contrib non-free non-free-firmware' >> /etc/apt/sources.list
+# --- 修改结束 ---
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -33,19 +34,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 -ac +extension GLX &\nexport DISPLAY=:99\nexec "$@"' > /usr/local/bin/start-xvfb.sh \
     && chmod +x /usr/local/bin/start-xvfb.sh
 
+# --- 依赖安装修改 ---
+# 复制 lock 文件，这是修复所有问题的关键
 COPY requirements.txt .
+COPY requirements-lock.txt .
 
-#多源轮询安装依赖
-RUN set -e; \
-    for src in \
-        https://mirrors.aliyun.com/pypi/simple \
-        https://pypi.tuna.tsinghua.edu.cn/simple \
-        https://pypi.doubanio.com/simple \
-        https://pypi.org/simple; do \
-      echo "Try installing from $src"; \
-      pip install --no-cache-dir -r requirements.txt -i $src && break; \
-      echo "Failed at $src, try next"; \
-    done
+# 关键修复：从 lock 文件中删除 Windows 专属的 pywin32 包
+RUN sed -i '/pywin32/d' requirements-lock.txt
+
+# 直接使用 lock 文件安装
+# 这会跳过所有依赖解析，并确保安装已知可用的版本组合
+RUN pip install \
+    --no-cache-dir \
+    --timeout=100 \
+    -r requirements-lock.txt \
+    -i https://repo.huaweicloud.com/repository/pypi/simple
+# --- 修改结束 ---
+
 
 # 复制日志配置文件
 COPY config/ ./config/
@@ -55,3 +60,4 @@ COPY . .
 EXPOSE 8501
 
 CMD ["python", "-m", "streamlit", "run", "web/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+
