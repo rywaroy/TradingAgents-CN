@@ -126,3 +126,5 @@ COMMIT_SUMMARY.md
 *.temp
 *.pyc.*
 *.pyo.*
+
+.serena/

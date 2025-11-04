@@ -102,7 +102,17 @@ def extract_risk_assessment(state):
         logger.info(f"提取风险评估数据时出错: {e}")
         return None
 
-def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, llm_provider, llm_model, market_type="美股", progress_callback=None):
+def run_stock_analysis(
+    stock_symbol,
+    analysis_date,
+    analysts,
+    research_depth,
+    llm_provider,
+    llm_model,
+    market_type="美股",
+    progress_callback=None,
+    override_siliconflow_api_key=None,
+):
     """执行股票分析
 
     Args:
@@ -113,6 +123,7 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
         llm_provider: LLM提供商 (dashscope/deepseek/google)
         llm_model: 大模型名称
         progress_callback: 进度回调函数，用于更新UI状态
+        override_siliconflow_api_key: 指定SiliconFlow请求时使用的API密钥（可选）
     """
 
     def update_progress(message, step=None, total_steps=None):
@@ -228,6 +239,9 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
         # 创建配置
         update_progress("配置分析参数...")
         config = DEFAULT_CONFIG.copy()
+        if override_siliconflow_api_key:
+            # 仅在需要时覆盖SiliconFlow密钥，避免污染全局配置
+            config["siliconflow_api_key"] = override_siliconflow_api_key
         config["llm_provider"] = llm_provider
         config["deep_think_llm"] = llm_model
         config["quick_think_llm"] = llm_model
@@ -427,7 +441,16 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
         logger.info(f"  - 缓存目录: {config['data_cache_dir']}")
         logger.info(f"  - 环境变量 TRADINGAGENTS_RESULTS_DIR: {os.getenv('TRADINGAGENTS_RESULTS_DIR', '未设置')}")
 
-        logger.info(f"使用配置: {config}")
+        loggable_config = config.copy()
+        siliconflow_key = loggable_config.get("siliconflow_api_key")
+        if siliconflow_key:
+            if len(siliconflow_key) <= 8:
+                masked_key = "*" * len(siliconflow_key)
+            else:
+                masked_key = f"{siliconflow_key[:4]}***{siliconflow_key[-4:]}"
+            loggable_config["siliconflow_api_key"] = masked_key
+
+        logger.info(f"使用配置: {loggable_config}")
         logger.info(f"分析师列表: {analysts}")
         logger.info(f"股票代码: {stock_symbol}")
         logger.info(f"分析日期: {analysis_date}")

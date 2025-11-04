@@ -1,8 +1,9 @@
 # TradingAgents/graph/trading_graph.py
 
-import os
-from pathlib import Path
 import json
+import os
+import random
+from pathlib import Path
 from datetime import date
 from typing import Dict, Any, Tuple, List, Optional
 
@@ -71,11 +72,27 @@ class TradingAgentsGraph:
             self.quick_thinking_llm = ChatOpenAI(model=self.config["quick_think_llm"], base_url=self.config["backend_url"])
         elif self.config["llm_provider"] == "siliconflow":
             # SiliconFlow支持：使用OpenAI兼容API
-            siliconflow_api_key = os.getenv('SILICONFLOW_API_KEY')
-            if not siliconflow_api_key:
-                raise ValueError("使用SiliconFlow需要设置SILICONFLOW_API_KEY环境变量")
+            siliconflow_api_key = self.config.get("siliconflow_api_key")
 
-            logger.info(f"🌐 [SiliconFlow] 使用API密钥: {siliconflow_api_key[:20]}...")
+            if siliconflow_api_key:
+                candidates = [siliconflow_api_key]
+            else:
+                raw_value = os.getenv("SILICONFLOW_API_KEY", "")
+                normalized = raw_value.replace(";", ",")
+                candidates = [item.strip() for item in normalized.split(",") if item.strip()]
+                if not candidates:
+                    raise ValueError("使用SiliconFlow需要设置SILICONFLOW_API_KEY环境变量")
+                siliconflow_api_key = random.choice(candidates)
+
+            if len(siliconflow_api_key) <= 8:
+                masked_key = "*" * len(siliconflow_api_key)
+            else:
+                masked_key = f"{siliconflow_api_key[:4]}***{siliconflow_api_key[-4:]}"
+
+            if len(candidates) > 1:
+                logger.info("🎲 [SiliconFlow] 从 %d 个密钥中选用: %s", len(candidates), masked_key)
+            else:
+                logger.info("🌐 [SiliconFlow] 使用API密钥: %s", masked_key)
 
             self.deep_thinking_llm = ChatOpenAI(
                 model=self.config["deep_think_llm"],

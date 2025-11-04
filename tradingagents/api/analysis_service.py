@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import random
 import time
 import uuid
 from datetime import date
@@ -47,6 +48,40 @@ AnalystType = Literal["market", "social", "news", "fundamentals"]
 
 DEFAULT_ANALYSTS: List[AnalystType] = ["market", "fundamentals"]
 REQUIRED_ENV_VARS = ("DASHSCOPE_API_KEY", "FINNHUB_API_KEY")
+
+
+def _mask_api_key(api_key: str) -> str:
+    """对敏感密钥做简单掩码，避免日志泄露"""
+    if not api_key:
+        return ""
+    if len(api_key) <= 8:
+        return "*" * len(api_key)
+    return f"{api_key[:4]}***{api_key[-4:]}"
+
+
+def _select_random_siliconflow_api_key() -> Optional[str]:
+    """从逗号分隔（兼容分号）的SiliconFlow密钥列表中随机挑选一个"""
+    raw_value = os.getenv("SILICONFLOW_API_KEY", "")
+    if not raw_value:
+        return None
+
+    normalized = raw_value.replace(";", ",")
+    candidates = [item.strip() for item in normalized.split(",") if item.strip()]
+    if not candidates:
+        return None
+
+    chosen = random.choice(candidates)
+    masked = _mask_api_key(chosen)
+    if len(candidates) > 1:
+        logger.info(
+            "🎲 [SiliconFlow] 已在 %d 个密钥中随机选中: %s",
+            len(candidates),
+            masked,
+        )
+    else:
+        logger.info("🌐 [SiliconFlow] 使用单一密钥: %s", masked)
+
+    return chosen
 
 
 class AnalysisRequest(BaseModel):
@@ -173,6 +208,16 @@ async def create_analysis(request: AnalysisRequest) -> AnalysisResponse:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
 
     llm_settings = _resolve_llm_settings(request.llm_provider, request.llm_model)
+    override_siliconflow_api_key: Optional[str] = None
+    if llm_settings["provider"] == "siliconflow":
+        override_siliconflow_api_key = _select_random_siliconflow_api_key()
+        if not override_siliconflow_api_key:
+            detail = "SiliconFlow 未配置有效的 API 密钥"
+            logger.error(detail)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail,
+            )
 
     request_id = uuid.uuid4().hex
     logger.info(
@@ -197,6 +242,7 @@ async def create_analysis(request: AnalysisRequest) -> AnalysisResponse:
             llm_settings["provider"],
             llm_settings["model"],
             request.market_type,
+            override_siliconflow_api_key=override_siliconflow_api_key,
         )
     except HTTPException:
         # 透传上层主动抛出的错误
