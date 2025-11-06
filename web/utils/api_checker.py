@@ -18,11 +18,12 @@ def check_api_keys():
     
     # 构建详细状态
     details = {
+        # 默认改为可选：仅当选择阿里百炼模型时才需要配置
         "DASHSCOPE_API_KEY": {
             "configured": bool(dashscope_key),
             "display": f"{dashscope_key[:12]}..." if dashscope_key else "未配置",
-            "required": True,
-            "description": "阿里百炼API密钥"
+            "required": False,
+            "description": "阿里百炼API密钥（仅在选择阿里百炼模型时需要）"
         },
         "FINNHUB_API_KEY": {
             "configured": bool(finnhub_key),

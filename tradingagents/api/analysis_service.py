@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.utils.logging_manager import get_logger
 from web.utils.analysis_runner import (
+    collect_required_api_key_status,
     run_stock_analysis,
     validate_analysis_params,
     format_analysis_results,
@@ -47,7 +48,6 @@ MarketType = Literal["A股", "港股", "美股"]
 AnalystType = Literal["market", "social", "news", "fundamentals"]
 
 DEFAULT_ANALYSTS: List[AnalystType] = ["market", "fundamentals"]
-REQUIRED_ENV_VARS = ("DASHSCOPE_API_KEY", "FINNHUB_API_KEY")
 
 
 def _mask_api_key(api_key: str) -> str:
@@ -140,11 +140,17 @@ app = FastAPI(
 )
 
 
-def _ensure_environment_ready() -> None:
+def _ensure_environment_ready(
+    llm_provider: str, override_siliconflow_api_key: Optional[str] = None
+) -> None:
     """确保必要的环境变量存在，否则返回503"""
-    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing:
-        detail = f"运行环境缺少必要配置: {', '.join(missing)}"
+    status_snapshot = collect_required_api_key_status(
+        llm_provider, override_siliconflow_api_key
+    )
+    for label, available in status_snapshot["statuses"].items():
+        logger.info("环境变量检查: %s => %s", label, "已设置" if available else "未设置")
+    if status_snapshot["missing"]:
+        detail = f"运行环境缺少必要配置: {', '.join(status_snapshot['missing'])}"
         logger.error("环境校验失败: %s", detail)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail
@@ -190,8 +196,6 @@ async def health_check() -> Dict[str, str]:
 )
 async def create_analysis(request: AnalysisRequest) -> AnalysisResponse:
     """外部调用入口"""
-    _ensure_environment_ready()
-
     analysts = request.analysts or DEFAULT_ANALYSTS
     analysis_date_str = request.analysis_date.isoformat()
 
@@ -218,6 +222,10 @@ async def create_analysis(request: AnalysisRequest) -> AnalysisResponse:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=detail,
             )
+
+    _ensure_environment_ready(
+        llm_settings["provider"], override_siliconflow_api_key
+    )
 
     request_id = uuid.uuid4().hex
     logger.info(

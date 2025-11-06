@@ -7,6 +7,7 @@ import os
 import uuid
 from pathlib import Path
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 try:
@@ -28,6 +29,55 @@ load_dotenv(project_root / ".env", override=True)
 # 导入统一日志系统
 from tradingagents.utils.logging_init import setup_web_logging
 logger = setup_web_logging()
+
+
+def collect_required_api_key_status(llm_provider: str, override_siliconflow_api_key: Optional[str] = None) -> Dict[str, Any]:
+    """汇总执行分析所需的API密钥状态，并返回缺失清单"""
+    provider = (llm_provider or "").lower()
+    statuses: Dict[str, bool] = {}
+    missing: List[str] = []
+
+    def record(label: str, is_available: bool, required: bool = True) -> None:
+        """记录密钥状态，可选是否计入缺失列表"""
+        statuses[label] = is_available
+        if required and not is_available:
+            missing.append(label)
+
+    record("FINNHUB_API_KEY", bool(os.getenv("FINNHUB_API_KEY")))
+
+    if provider == "siliconflow":
+        if override_siliconflow_api_key:
+            statuses["SILICONFLOW_API_KEY"] = True
+        else:
+            record("SILICONFLOW_API_KEY", bool(os.getenv("SILICONFLOW_API_KEY")))
+    elif provider == "dashscope":
+        record("DASHSCOPE_API_KEY", bool(os.getenv("DASHSCOPE_API_KEY")))
+    elif provider == "deepseek":
+        record("DEEPSEEK_API_KEY", bool(os.getenv("DEEPSEEK_API_KEY")))
+    elif provider == "openai":
+        record("OPENAI_API_KEY", bool(os.getenv("OPENAI_API_KEY")))
+    elif provider == "google":
+        record("GOOGLE_API_KEY", bool(os.getenv("GOOGLE_API_KEY")))
+    elif provider == "anthropic":
+        record("ANTHROPIC_API_KEY", bool(os.getenv("ANTHROPIC_API_KEY")))
+    elif provider == "openrouter":
+        openrouter_ready = bool(os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"))
+        statuses["OPENROUTER_API_KEY 或 OPENAI_API_KEY"] = openrouter_ready
+        if not openrouter_ready:
+            missing.append("OPENROUTER_API_KEY 或 OPENAI_API_KEY")
+    elif provider == "custom_openai":
+        record("CUSTOM_OPENAI_API_KEY", bool(os.getenv("CUSTOM_OPENAI_API_KEY")))
+    elif provider == "qianfan":
+        qianfan_ready = bool(os.getenv("QIANFAN_API_KEY")) or (
+            bool(os.getenv("QIANFAN_ACCESS_KEY")) and bool(os.getenv("QIANFAN_SECRET_KEY"))
+        )
+        statuses["QIANFAN_API_KEY 或 QIANFAN_ACCESS_KEY+QIANFAN_SECRET_KEY"] = qianfan_ready
+        if not qianfan_ready:
+            missing.append("QIANFAN_API_KEY 或 QIANFAN_ACCESS_KEY+QIANFAN_SECRET_KEY")
+    else:
+        logger.info(f"ℹ️ 未识别的LLM提供商 {llm_provider}，跳过专项密钥检查")
+
+    return {"missing": missing, "statuses": statuses}
 
 # 添加配置管理器
 try:
@@ -217,17 +267,15 @@ def run_stock_analysis(
 
     # 验证环境变量
     update_progress("检查环境变量配置...")
-    dashscope_key = os.getenv("DASHSCOPE_API_KEY")
-    finnhub_key = os.getenv("FINNHUB_API_KEY")
+    api_key_status = collect_required_api_key_status(llm_provider, override_siliconflow_api_key)
 
-    logger.info(f"环境变量检查:")
-    logger.info(f"  DASHSCOPE_API_KEY: {'已设置' if dashscope_key else '未设置'}")
-    logger.info(f"  FINNHUB_API_KEY: {'已设置' if finnhub_key else '未设置'}")
+    logger.info("环境变量检查:")
+    for label, available in api_key_status["statuses"].items():
+        logger.info("  %s: %s", label, "已设置" if available else "未设置")
 
-    if not dashscope_key:
-        raise ValueError("DASHSCOPE_API_KEY 环境变量未设置")
-    if not finnhub_key:
-        raise ValueError("FINNHUB_API_KEY 环境变量未设置")
+    if api_key_status["missing"]:
+        missing_str = ", ".join(api_key_status["missing"])
+        raise ValueError(f"运行环境缺少必要配置: {missing_str}")
 
     update_progress("环境变量验证通过")
 
