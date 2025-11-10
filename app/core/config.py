@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # JWT配置
     JWT_SECRET: str = Field(default="change-me-in-production")
     JWT_ALGORITHM: str = Field(default="HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30)
 
     # 队列配置

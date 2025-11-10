@@ -14,6 +14,7 @@ from app.services.user_service import user_service
 from app.models.user import UserCreate, UserUpdate
 from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
+from app.core.config import settings
 
 # 尝试导入日志管理器
 try:
@@ -166,8 +167,13 @@ async def login(payload: LoginRequest, request: Request):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
         # 生成 token
+        access_token_ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        refresh_token_ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
         token = AuthService.create_access_token(sub=user.username)
-        refresh_token = AuthService.create_access_token(sub=user.username, expires_delta=60*60*24*7)  # 7天有效期
+        refresh_token = AuthService.create_access_token(
+            sub=user.username,
+            expires_delta=refresh_token_ttl
+        )
 
         # 记录登录成功日志
         await log_operation(
@@ -187,7 +193,7 @@ async def login(payload: LoginRequest, request: Request):
             "data": {
                 "access_token": token,
                 "refresh_token": refresh_token,
-                "expires_in": 60 * 60,
+                "expires_in": access_token_ttl,
                 "user": {
                     "id": str(user.id),
                     "username": user.username,
@@ -244,8 +250,13 @@ async def refresh_token(payload: RefreshTokenRequest):
         logger.debug(f"✅ Token验证成功，用户: {token_data.sub}")
 
         # 生成新的tokens
+        access_token_ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        refresh_token_ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
         new_token = AuthService.create_access_token(sub=token_data.sub)
-        new_refresh_token = AuthService.create_access_token(sub=token_data.sub, expires_delta=60*60*24*7)
+        new_refresh_token = AuthService.create_access_token(
+            sub=token_data.sub,
+            expires_delta=refresh_token_ttl
+        )
 
         logger.debug(f"🎉 新token生成成功")
 
@@ -254,7 +265,7 @@ async def refresh_token(payload: RefreshTokenRequest):
             "data": {
                 "access_token": new_token,
                 "refresh_token": new_refresh_token,
-                "expires_in": 60 * 60
+                "expires_in": access_token_ttl
             },
             "message": "Token刷新成功"
         }
