@@ -1071,9 +1071,23 @@ class DataSourceManager:
                               })
 
                 # 数据质量异常时也尝试降级到其他数据源
-                fallback_result = self._try_fallback_sources(symbol, start_date, end_date)
-                if fallback_result and "❌" not in fallback_result and "错误" not in fallback_result:
-                    logger.info(f"✅ [数据来源: 备用数据源] 降级成功获取数据: {symbol}")
+                fallback_result, fallback_source = self._try_fallback_sources(
+                    symbol,
+                    start_date,
+                    end_date,
+                    period
+                )
+                if self._is_valid_result(fallback_result):
+                    logger.info(
+                        f"✅ [数据来源: 备用数据源] 降级成功获取数据: {symbol}",
+                        extra={
+                            'symbol': symbol,
+                            'start_date': start_date,
+                            'end_date': end_date,
+                            'data_source': fallback_source or 'unknown',
+                            'event_type': 'data_fetch_fallback_success'
+                        }
+                    )
                     return fallback_result
                 else:
                     logger.error(f"❌ [数据来源: 所有数据源失败] 所有数据源都无法获取有效数据: {symbol}")
@@ -1091,7 +1105,26 @@ class DataSourceManager:
                             'error': str(e),
                             'event_type': 'data_fetch_exception'
                         }, exc_info=True)
-            return self._try_fallback_sources(symbol, start_date, end_date)
+            fallback_result, fallback_source = self._try_fallback_sources(
+                symbol,
+                start_date,
+                end_date,
+                period
+            )
+            if self._is_valid_result(fallback_result):
+                logger.info(
+                    f"✅ [数据来源: 备用数据源] 异常后降级成功: {symbol}",
+                    extra={
+                        'symbol': symbol,
+                        'start_date': start_date,
+                        'end_date': end_date,
+                        'data_source': fallback_source or 'unknown',
+                        'event_type': 'data_fetch_fallback_success'
+                    }
+                )
+                return fallback_result
+            # 如果降级仍失败，返回降级结果（包含错误信息）
+            return fallback_result or f"❌ 所有数据源都无法获取{symbol}的{period}数据"
 
     def _get_mongodb_data(self, symbol: str, start_date: str, end_date: str, period: str = "daily") -> tuple[str, str | None]:
         """
@@ -1331,6 +1364,12 @@ class DataSourceManager:
         except Exception as e:
             logger.error(f"❌ 获取成交量失败: {e}")
             return 0
+
+    def _is_valid_result(self, result: str | None) -> bool:
+        """判断数据获取结果是否有效"""
+        if not result:
+            return False
+        return ("❌" not in result) and ("错误" not in result)
 
     def _try_fallback_sources(self, symbol: str, start_date: str, end_date: str, period: str = "daily") -> tuple[str, str | None]:
         """
