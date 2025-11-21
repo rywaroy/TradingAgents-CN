@@ -8,7 +8,7 @@
           <span class="version-badge">v1.0.0-preview</span>
         </h1>
         <p class="welcome-subtitle">
-          现代化的多智能体股票分析平台，助您做出更明智的投资决策
+          现代化的多智能体股票分析学习平台，辅助你掌握更全面的市场视角分析股票
         </p>
       </div>
       <div class="welcome-actions">
@@ -23,6 +23,33 @@
       </div>
     </div>
 
+
+    <!-- 学习中心推荐卡片 -->
+    <el-card class="learning-highlight-card">
+      <div class="learning-highlight">
+        <div class="learning-icon">
+          <el-icon size="48"><Reading /></el-icon>
+        </div>
+        <div class="learning-content">
+          <h2>📚 AI股票分析学习中心</h2>
+          <p>从零开始学习AI、大语言模型和智能股票分析。了解多智能体系统如何协作分析股票，掌握提示词工程技巧，选择合适的大模型，理解AI的能力与局限性。</p>
+          <div class="learning-features">
+            <span class="feature-tag">🤖 AI基础知识</span>
+            <span class="feature-tag">✍️ 提示词工程</span>
+            <span class="feature-tag">🎯 模型选择</span>
+            <span class="feature-tag">📊 分析原理</span>
+            <span class="feature-tag">⚠️ 风险认知</span>
+            <span class="feature-tag">🎓 实战教程</span>
+          </div>
+        </div>
+        <div class="learning-action">
+          <el-button type="primary" size="large" @click="goToLearning">
+            <el-icon><Reading /></el-icon>
+            开始学习
+          </el-button>
+        </div>
+      </div>
+    </el-card>
 
     <!-- 主要功能区域 -->
     <el-row :gutter="24" class="main-content">
@@ -203,22 +230,54 @@
           </template>
 
           <div v-if="paperAccount" class="paper-account-info">
-            <div class="account-item">
-              <div class="account-label">现金</div>
-              <div class="account-value">¥{{ formatMoney(paperAccount.cash) }}</div>
+            <!-- A股账户 -->
+            <div class="account-section">
+              <div class="account-section-title">🇨🇳 A股账户</div>
+              <div class="account-item">
+                <div class="account-label">现金</div>
+                <div class="account-value">¥{{ formatMoney(paperAccount.cash?.CNY || paperAccount.cash) }}</div>
+              </div>
+              <div class="account-item">
+                <div class="account-label">持仓市值</div>
+                <div class="account-value">¥{{ formatMoney(paperAccount.positions_value?.CNY || paperAccount.positions_value) }}</div>
+              </div>
+              <div class="account-item">
+                <div class="account-label">总资产</div>
+                <div class="account-value primary">¥{{ formatMoney(paperAccount.equity?.CNY || paperAccount.equity) }}</div>
+              </div>
             </div>
-            <div class="account-item">
-              <div class="account-label">持仓市值</div>
-              <div class="account-value">¥{{ formatMoney(paperAccount.positions_value) }}</div>
+
+            <!-- 港股账户 -->
+            <div class="account-section" v-if="paperAccount.cash?.HKD !== undefined">
+              <div class="account-section-title">🇭🇰 港股账户</div>
+              <div class="account-item">
+                <div class="account-label">现金</div>
+                <div class="account-value">HK${{ formatMoney(paperAccount.cash.HKD) }}</div>
+              </div>
+              <div class="account-item">
+                <div class="account-label">持仓市值</div>
+                <div class="account-value">HK${{ formatMoney(paperAccount.positions_value?.HKD || 0) }}</div>
+              </div>
+              <div class="account-item">
+                <div class="account-label">总资产</div>
+                <div class="account-value primary">HK${{ formatMoney(paperAccount.equity?.HKD || 0) }}</div>
+              </div>
             </div>
-            <div class="account-item">
-              <div class="account-label">总资产</div>
-              <div class="account-value primary">¥{{ formatMoney(paperAccount.equity) }}</div>
-            </div>
-            <div class="account-item">
-              <div class="account-label">已实现盈亏</div>
-              <div class="account-value" :class="getPnlClass(paperAccount.realized_pnl)">
-                {{ paperAccount.realized_pnl >= 0 ? '+' : '' }}¥{{ formatMoney(paperAccount.realized_pnl) }}
+
+            <!-- 美股账户 -->
+            <div class="account-section" v-if="paperAccount.cash?.USD !== undefined">
+              <div class="account-section-title">🇺🇸 美股账户</div>
+              <div class="account-item">
+                <div class="account-label">现金</div>
+                <div class="account-value">${{ formatMoney(paperAccount.cash.USD) }}</div>
+              </div>
+              <div class="account-item">
+                <div class="account-label">持仓市值</div>
+                <div class="account-value">${{ formatMoney(paperAccount.positions_value?.USD || 0) }}</div>
+              </div>
+              <div class="account-item">
+                <div class="account-label">总资产</div>
+                <div class="account-value primary">${{ formatMoney(paperAccount.equity?.USD || 0) }}</div>
               </div>
             </div>
           </div>
@@ -251,7 +310,7 @@ import {
   List,
   ArrowRight,
   InfoFilled,
-  Refresh
+  Reading
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { AnalysisTask, AnalysisStatus } from '@/types/analysis'
@@ -323,6 +382,10 @@ const goToQueue = () => {
 
 const goToHistory = () => {
   router.push('/tasks?tab=completed')
+}
+
+const goToLearning = () => {
+  router.push('/learning')
 }
 
 const viewAnalysis = (analysis: AnalysisTask) => {
@@ -601,6 +664,67 @@ onMounted(async () => {
     }
   }
 
+  .learning-highlight-card {
+    margin-bottom: 24px;
+    border: 2px solid var(--el-color-primary);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+
+    .learning-highlight {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      padding: 8px;
+
+      .learning-icon {
+        flex-shrink: 0;
+        width: 80px;
+        height: 80px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+      }
+
+      .learning-content {
+        flex: 1;
+
+        h2 {
+          font-size: 20px;
+          font-weight: 600;
+          margin: 0 0 12px 0;
+          color: var(--el-text-color-primary);
+        }
+
+        p {
+          font-size: 14px;
+          color: var(--el-text-color-regular);
+          line-height: 1.6;
+          margin: 0 0 16px 0;
+        }
+
+        .learning-features {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+
+          .feature-tag {
+            padding: 4px 12px;
+            background: var(--el-color-primary-light-9);
+            color: var(--el-color-primary);
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 500;
+          }
+        }
+      }
+
+      .learning-action {
+        flex-shrink: 0;
+      }
+    }
+  }
 
   .quick-actions-card {
     .quick-actions {
@@ -841,27 +965,41 @@ onMounted(async () => {
       flex-direction: column;
       gap: 16px;
 
+      .account-section {
+        border: 1px solid var(--el-border-color-lighter);
+        border-radius: 8px;
+        padding: 12px;
+        background-color: var(--el-fill-color-blank);
+
+        .account-section-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--el-text-color-primary);
+          margin-bottom: 12px;
+          padding-bottom: 8px;
+          border-bottom: 1px solid var(--el-border-color-lighter);
+        }
+      }
+
       .account-item {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 12px;
-        background-color: var(--el-fill-color-lighter);
-        border-radius: 8px;
+        padding: 8px 0;
 
         .account-label {
-          font-size: 14px;
+          font-size: 13px;
           color: var(--el-text-color-regular);
         }
 
         .account-value {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 600;
           color: var(--el-text-color-primary);
 
           &.primary {
             color: var(--el-color-primary);
-            font-size: 18px;
+            font-size: 16px;
           }
 
           &.price-up {
@@ -910,7 +1048,18 @@ onMounted(async () => {
       }
     }
 
+    .learning-highlight-card {
+      .learning-highlight {
+        flex-direction: column;
+        text-align: center;
 
+        .learning-content {
+          .learning-features {
+            justify-content: center;
+          }
+        }
+      }
+    }
 
     .main-content {
       .el-col {

@@ -11,8 +11,17 @@
         <el-button @click="onToggleFavorite">
           <el-icon><Star /></el-icon> {{ isFav ? '已自选' : '加自选' }}
         </el-button>
-        <el-button type="primary" @click="showSyncDialog" :loading="syncLoading">
+        <!-- 🔥 港股和美股不显示"同步数据"按钮 -->
+        <el-button
+          v-if="market !== 'HK' && market !== 'US'"
+          type="primary"
+          @click="showSyncDialog"
+          :loading="syncLoading"
+        >
           <el-icon><Refresh /></el-icon> 同步数据
+        </el-button>
+        <el-button type="warning" @click="clearCache" :loading="clearCacheLoading">
+          <el-icon><Delete /></el-icon> 清除缓存
         </el-button>
         <el-button type="success" @click="goPaperTrading">
           <el-icon><CreditCard /></el-icon> 模拟交易
@@ -74,13 +83,19 @@
           </div>
         </div>
         <!-- 同步状态提示 -->
-        <div class="sync-status" v-if="syncStatus">
+        <div class="sync-status" v-if="quote.updatedAt || syncStatus">
           <el-icon><Clock /></el-icon>
           <span class="sync-info">
-            后端同步: {{ formatSyncTime(syncStatus.last_sync_time) }}
-            <span v-if="syncStatus.interval_seconds">{{ formatSyncInterval(syncStatus.interval_seconds) }}</span>
+            <!-- 🔥 优先显示股票自己的更新时间 -->
+            <template v-if="quote.updatedAt">
+              数据更新: {{ formatQuoteUpdateTime(quote.updatedAt) }}
+            </template>
+            <template v-else-if="syncStatus">
+              后端同步: {{ formatSyncTime(syncStatus.last_sync_time) }}
+              <span v-if="syncStatus.interval_seconds">{{ formatSyncInterval(syncStatus.interval_seconds) }}</span>
+            </template>
             <el-tag
-              v-if="syncStatus.data_source"
+              v-if="syncStatus?.data_source"
               size="small"
               type="success"
               style="margin-left: 4px"
@@ -212,7 +227,7 @@
                     </template>
                   </div>
                 </div>
-                <div class="right">{{ n.time || '-' }}</div>
+                <div class="right">{{ formatNewsTime(n.time) }}</div>
               </div>
               <div class="meta">{{ n.source || '-' }} · {{ newsSource || '-' }}</div>
             </div>
@@ -343,13 +358,14 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, CreditCard } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, CreditCard, Delete } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { stocksApi } from '@/api/stocks'
 import { analysisApi } from '@/api/analysis'
 import { ApiClient } from '@/api/request'
 import { stockSyncApi } from '@/api/stockSync'
+import { clearAllCache } from '@/api/cache'
 import { use as echartsUse } from 'echarts/core'
 import { CandlestickChart } from 'echarts/charts'
 
@@ -456,7 +472,8 @@ const quote = reactive({
   amplitude: NaN,  // 振幅（替代量比）
   tradeDate: null as string | null,  // 交易日期（用于成交量、成交额）
   turnoverDate: null as string | null,  // 换手率数据日期
-  amplitudeDate: null as string | null  // 振幅数据日期
+  amplitudeDate: null as string | null,  // 振幅数据日期
+  updatedAt: null as string | null  // 🔥 数据更新时间
 })
 
 const lastRefreshAt = ref<Date | null>(null)
@@ -492,6 +509,9 @@ const syncForm = reactive({
   dataSource: 'tushare' as 'tushare' | 'akshare',
   days: 365
 })
+
+// 清除缓存
+const clearCacheLoading = ref(false)
 
 // 显示同步对话框
 function showSyncDialog() {
@@ -580,6 +600,42 @@ async function refreshMockQuote() {
   await fetchQuote()
 }
 
+// 清除缓存
+async function clearCache() {
+  try {
+    await ElMessageBox.confirm(
+      '确定要清除所有缓存吗？清除后需要重新从数据源获取数据。',
+      '清除缓存',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    clearCacheLoading.value = true
+    await clearAllCache()
+    ElMessage.success('缓存已清除，正在刷新数据...')
+
+    // 刷新当前页面数据
+    await Promise.all([
+      fetchQuote(),
+      fetchFundamentals(),
+      fetchKline(),
+      fetchNews()
+    ])
+
+    ElMessage.success('数据已刷新')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('清除缓存失败:', error)
+      ElMessage.error(error.message || '清除缓存失败')
+    }
+  } finally {
+    clearCacheLoading.value = false
+  }
+}
+
 async function fetchQuote() {
   // 🔥 参数验证：确保股票代码不为空
   if (!code.value) {
@@ -606,6 +662,7 @@ async function fetchQuote() {
     quote.tradeDate = d.trade_date || null  // 交易日期（用于成交量、成交额）
     quote.turnoverDate = d.turnover_rate_date || d.trade_date || null
     quote.amplitudeDate = d.amplitude_date || d.trade_date || null
+    quote.updatedAt = d.updated_at || null  // 🔥 数据更新时间
 
     if (d.name) stockName.value = d.name
     if (d.market) market.value = d.market
@@ -765,7 +822,7 @@ function cleanTitle(s: any): string {
 
 async function fetchNews() {
   try {
-    const res = await stocksApi.getNews(code.value, 2, 50, true)
+    const res = await stocksApi.getNews(code.value, 30, 50, true)
     const d: any = (res as any)?.data || {}
     const itemsRaw: any[] = Array.isArray(d.items) ? d.items : []
     newsItems.value = itemsRaw.map((it: any) => {
@@ -925,12 +982,10 @@ function fmtVolume(v: any) {
   const n = Number(v)
   if (!Number.isFinite(n)) return '-'
 
-  // 🔥 数据库存储的是"股"，需要除以100转换为"手"
-  const lots = n / 100
-
-  if (lots >= 1e8) return (lots/1e8).toFixed(2) + '亿手'
-  if (lots >= 1e4) return (lots/1e4).toFixed(2) + '万手'
-  return lots.toFixed(0) + '手'
+  // 🔥 数据库存储的是"股"，直接显示为"万股"或"亿股"
+  if (n >= 1e8) return (n/1e8).toFixed(2) + '亿股'
+  if (n >= 1e4) return (n/1e4).toFixed(2) + '万股'
+  return n.toFixed(0) + '股'
 }
 function fmtAmount(v: any) {
   const n = Number(v)
@@ -945,6 +1000,30 @@ function formatSyncTime(timeStr: string | null | undefined): string {
   if (!timeStr) return '未同步'
   // 后端返回的时间已经是 UTC+8 时区，添加时区标识
   return `${timeStr} (UTC+8)`
+}
+
+// 🔥 新增：格式化股票更新时间
+function formatQuoteUpdateTime(timeStr: string | null | undefined): string {
+  if (!timeStr) return '未更新'
+  try {
+    // 后端返回的时间已经是 UTC+8 时区，但没有时区标识
+    // 需要手动添加 +08:00 时区标识，然后转换为本地时间显示
+    let isoString = timeStr
+    if (!timeStr.includes('+') && !timeStr.includes('Z')) {
+      // 如果没有时区标识，添加 +08:00
+      isoString = timeStr.replace(/(\.\d+)?$/, '+08:00')
+    }
+    const date = new Date(isoString)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  } catch (e) {
+    return timeStr
+  }
 }
 
 // 🔥 新增：格式化同步间隔
@@ -971,11 +1050,31 @@ function fmtConf(v: any) {
   return `${Math.round(pct)}%`
 }
 
-import { formatDateTimeWithRelative } from '@/utils/datetime'
+import { formatDateTimeWithRelative, formatDateTime } from '@/utils/datetime'
 
 // 格式化分析时间（处理UTC时间转换为中国本地时间）
 function formatAnalysisTime(dateStr: any): string {
   return formatDateTimeWithRelative(dateStr)
+}
+
+// 格式化新闻时间（简洁格式：MM-DD HH:mm）
+function formatNewsTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-'
+
+  try {
+    // 使用 formatDateTime 工具函数，自定义格式
+    return formatDateTime(dateStr, {
+      timeZone: 'Asia/Shanghai',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).replace(/\//g, '-').replace(/,/g, '')  // 移除逗号和斜杠
+  } catch (e) {
+    console.error('新闻时间格式化错误:', e, dateStr)
+    return String(dateStr)
+  }
 }
 
 // 格式化报告名称

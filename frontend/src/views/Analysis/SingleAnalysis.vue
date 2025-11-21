@@ -37,7 +37,7 @@
                     <el-form-item label="股票代码" required>
                       <el-input
                         v-model="analysisForm.stockCode"
-                        placeholder="如：000001、AAPL、00700"
+                        placeholder="如：000001、AAPL、700、1810"
                         clearable
                         size="large"
                         class="stock-input"
@@ -409,39 +409,7 @@
                         <el-icon class="help-icon"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
-                    <el-select v-model="modelSettings.deepAnalysisModel" size="small" style="width: 100%" filterable>
-                      <el-option
-                        v-for="model in availableModels"
-                        :key="`deep-${model.provider}/${model.model_name}`"
-                        :label="model.model_display_name || model.model_name"
-                        :value="model.model_name"
-                      >
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                          <span style="flex: 1;">{{ model.model_display_name || model.model_name }}</span>
-                          <div style="display: flex; align-items: center; gap: 4px;">
-                            <!-- 能力等级徽章 -->
-                            <el-tag
-                              v-if="model.capability_level"
-                              :type="getCapabilityTagType(model.capability_level)"
-                              size="small"
-                              effect="plain"
-                            >
-                              {{ getCapabilityText(model.capability_level) }}
-                            </el-tag>
-                            <!-- 角色标签 -->
-                            <el-tag
-                              v-if="isDeepAnalysisRole(model.suitable_roles)"
-                              type="warning"
-                              size="small"
-                              effect="plain"
-                            >
-                              🧠深度
-                            </el-tag>
-                            <span style="font-size: 12px; color: #909399;">{{ model.provider }}</span>
-                          </div>
-                        </div>
-                      </el-option>
-                    </el-select>
+                    <DeepModelSelector v-model="modelSettings.deepAnalysisModel" :available-models="availableModels" type="deep" size="small" width="100%" />
                   </div>
                 </div>
 
@@ -743,11 +711,12 @@ import { stocksApi } from '@/api/stocks'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { configApi } from '@/api/config'
+import DeepModelSelector from '@/components/DeepModelSelector.vue'
 import { ANALYSTS, convertAnalystNamesToIds } from '@/constants/analysts'
 import { marked } from 'marked'
 import { recommendModels, validateModels, type ModelRecommendationResponse } from '@/api/modelCapabilities'
 import { validateStockCode, getStockCodeFormatHelp, getStockCodeExamples } from '@/utils/stockValidator'
-import { normalizeMarketForAnalysis } from '@/utils/market'
+import { normalizeMarketForAnalysis, getMarketByStockCode } from '@/utils/market'
 
 // 配置marked选项
 marked.setOptions({
@@ -1624,7 +1593,7 @@ const goSimOrder = async () => {
     if (recommendation.action === 'buy') {
       // 买入：根据可用资金和当前价格计算
       const availableCash = account.cash
-      maxQuantity = Math.floor(availableCash / currentPrice / 100) * 100 // 100股为单位
+      maxQuantity = Math.floor(Number(availableCash) / Number(currentPrice) / 100) * 100 // 100股为单位
       const suggested = Math.floor(maxQuantity * 0.2) // 建议使用20%资金
       suggestedQuantity = Math.floor(suggested / 100) * 100 // 向下取整到100的倍数
       suggestedQuantity = Math.max(100, suggestedQuantity) // 至少100股
@@ -1714,7 +1683,7 @@ const goSimOrder = async () => {
             h('span', recommendation.riskLevel)
           ]),
           recommendation.action === 'buy' ? h('p', { style: 'color: #909399; font-size: 12px; margin-top: 12px;' },
-            `可用资金：${account.cash.toFixed(2)}元，最大可买：${maxQuantity}股`
+            `可用资金：${typeof account.cash === 'number' ? account.cash.toFixed(2) : account.cash}元，最大可买：${maxQuantity}股`
           ) : null,
           recommendation.action === 'sell' ? h('p', { style: 'color: #909399; font-size: 12px; margin-top: 12px;' },
             `当前持仓：${maxQuantity}股`
@@ -1748,7 +1717,7 @@ const goSimOrder = async () => {
           // 检查资金是否充足
           if (recommendation.action === 'buy') {
             const totalAmount = tradeForm.price * tradeForm.quantity
-            if (totalAmount > account.cash) {
+            if (totalAmount > Number(account.cash)) {
               ElMessage.error('可用资金不足')
               return
             }
@@ -2260,6 +2229,13 @@ onMounted(async () => {
     // 🔥 关键修复：如果有新的股票代码，清除旧任务缓存
     clearTaskCache()
     console.log('🔄 检测到新股票代码，已清除旧任务缓存:', q.stock)
+
+    // 🆕 自动识别市场类型（如果URL中没有明确指定market参数）
+    if (!q?.market) {
+      const detectedMarket = getMarketByStockCode(analysisForm.stockCode)
+      analysisForm.market = detectedMarket as MarketType
+      console.log('🔍 自动识别市场类型:', analysisForm.stockCode, '->', detectedMarket)
+    }
   }
   if (q?.market) analysisForm.market = normalizeMarketForAnalysis(q.market) as MarketType
 
